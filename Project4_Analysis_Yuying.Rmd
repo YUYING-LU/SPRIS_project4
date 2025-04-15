@@ -9,20 +9,39 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE, warning = F, message = F)
 ```
 
-
 # Main Objectives
 
-- a) Comprehensive statistical analysis
-  - 1) Randomization procedure
-  - 2) Analytic approach for primary analysis
-  - 3) Sample size calculation
-  
-- b) Whether the vaccine group has greater odds of having SAE at any of the three assessment time points
+-   
 
-- c) Other Interests
-  - 1) Probability of getting infected within 12 months with corresponding 95% confidence interval 
-  - 2) Median time to infection, and the mean of the time to infection after the second shot
+    a)  Comprehensive statistical analysis
 
+    -   
+
+        1)  Randomization procedure
+
+    -   
+
+        2)  Analytic approach for primary analysis
+
+    -   
+
+        3)  Sample size calculation
+
+-   
+
+    b)  Whether the vaccine group has greater odds of having SAE at any of the three assessment time points
+
+-   
+
+    c)  Other Interests
+
+    -   
+
+        1)  Probability of getting infected within 12 months with corresponding 95% confidence interval
+
+    -   
+
+        2)  Median time to infection, and the mean of the time to infection after the second shot
 
 ```{r}
 library(tidyverse)
@@ -43,14 +62,47 @@ df_Q2c <- read_excel("Q2c.xlsx", col_types = c("numeric", "numeric", "numeric","
 
 ## a)
 
+### Randomized Clinical Trial
 
-## b) 
+-   Recruit N participants who are seronegative at baseline.
+    -   Stratified Sampling Method
+    
+-   Randomly split into placebo group and controlled groups with the same size (Double Blinded)
+    -   Placebo group: get placebo (two injection)
+    -   Controlled group: get vaccine (two injection)
+
+-   Researchers follows the participants for 12 months and recorded their occurrence of symptomatic Covid-19 with onset at least 14 days
+
+
+intent-to-treat Analysis
+
+|     | D+  | D-  |Total|
+|:---:|:---:|:---:|:---:|
+| E+  | n1  | n2  | n1+n2|
+| E-  | n3  | n4  | n3+n4| 
+
+
+RR ={n1/(n1+n2)}/{n3/(n3+n4)}
+
+H0: RR>=0.7, H1: RR<0.7
+
+
+### Assumption: 
+
+Little loss of follow-up
+
+
+### Power Analysis?
+
+Provide 80% power to detect 60% vaccine effecacy without planned interim analysis
+
+
+## b)
 
 ```{r}
 df_b <- left_join(df_Q2bBL, df_Q2b, by = "id")
 df_b
 ```
-
 
 ```{r}
 tab <- df_b %>%
@@ -63,11 +115,9 @@ tab <- df_b %>%
 print(tab)
 ```
 
-### Logistic Mixed Effect Model 
-
+### Logistic Mixed Effect Model
 
 Add site as random intercept (doesn't converge)
-
 
 ```{r}
 SAE_mod <- df_b |> mutate(time = as.factor(time)) |> 
@@ -90,7 +140,6 @@ summary(SAE_mod_int)
 sjPlot::tab_model(SAE_mod_int, transform = "exp")  
 ```
 
-
 ### GEE ? Sensitivity Analysis
 
 ```{r}
@@ -110,7 +159,7 @@ emm <- emmeans(gee, ~ group | time, type = "response")
 pairs(emm, by = "time")  # gives OR and 95% CI
 ```
 
-## c) 
+## c)
 
 ```{r}
 df_c = left_join(df_Q2c, df_Q2bBL, by = "id")
@@ -123,8 +172,7 @@ mean(df_c$infection_time, na.rm = T)
 mean(is.na(df_c$infection_time))
 ```
 
-
-### KM 
+### KM
 
 ```{r}
 library(survival)
@@ -156,8 +204,6 @@ summary(cox_mod)
 cox.zph(cox_mod)
 ```
 
-
 ```{r}
 summary(df_c)
 ```
-
