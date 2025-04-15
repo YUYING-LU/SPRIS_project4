@@ -137,12 +137,17 @@ Consider interaction between time and group
 
 ```{r}
 SAE_mod_int <- df_b |> mutate(time = as.factor(time)) |> 
-  glmer(sae ~ sex + age + time*group + (1 | id),
+  glmer(sae ~ sex + age + time*group + (1 | id/site),
             family = binomial(link = "logit"), 
             data   = _)
 
 summary(SAE_mod_int)
-sjPlot::tab_model(SAE_mod_int, transform = "exp")  
+sjPlot::tab_model(SAE_mod_int, transform = "exp") 
+
+site/id
+
+
+
 ```
 
 ### GEE ? Sensitivity Analysis
@@ -202,12 +207,17 @@ cat(sprintf("Probability of infection within 12 months = %.2f%% (95%% CI %.2f â€
             100*prob12, 100*ci12[2], 100*ci12[1]))
 ```
 
+# fit other distribution
+
+
 ```{r}
 cox_mod<- coxph(Surv(enrollment_time, time, status) ~ sex + age , data = df_surv)
 # Print summary of the model
 summary(cox_mod)
 cox.zph(cox_mod)
 ```
+
+
 
 ```{r}
 summary(df_c)
