@@ -1,0 +1,237 @@
+---
+title: "SPRIS Proj 4 Draft"
+author: "Gustavo Garcia-Franceschini"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(readxl)
+library(tidyverse)
+library(haven)
+library(gtsummary)
+library(KMsurv)
+library(survival)
+library(survival)
+library(survminer)
+library(ggplot2)
+library(patchwork)
+library(pec)
+library(lme4)
+library(ggsurvfit)
+```
+
+# Problem 1
+
+```{r}
+baseline = read_excel("Q2b_BL.xlsx") %>%
+  janitor::clean_names()
+```
+
+```{r}
+ggplot(baseline) + 
+  geom_histogram(aes(x = age))
+```
+
+```{r}
+summary(baseline)
+```
+
+*Simple randomization*
+
+- Use logistic regression to find odds ratio
+
+- 1 - exp(B) = Vaccine efficacy
+
+- Want to know if Beta >= log(1 - 0.3). Use Wald's test with W = Beta - log(0.7)/se(Beta) and critical value z_0.05
+
+
+
+# Question b
+
+```{r}
+baseline =  read_excel("Q2b_BL.xlsx", col_types = "numeric")
+
+study =  read_excel("Q2b.xlsx", col_types = "numeric")
+
+df_2 = left_join(baseline, study) %>%
+  mutate(SEX = factor(SEX),
+         GROUP = factor(GROUP),
+         TIME = factor(TIME))
+```
+
+
+```{r}
+naniar::mcar_test(df_2)
+```
+
+
+```{r}
+
+# Fit logistic mixed effects model with random intercepts and random slopes
+model <- glmer(SAE ~ TIME + AGE + SEX + GROUP +
+                 (1 | ID/SITE) + GROUP*TIME, data = df_2, family = binomial)
+
+# View model summary
+summary(model)
+
+#Use ANOVA to check if interaction term is necessary
+```
+
+
+```{r}
+
+# Fit logistic mixed effects model with random intercepts and random slopes
+modelt1 <- df_2 %>%
+  filter(TIME == 1) %>%
+  glm(SAE ~ AGE + SEX + GROUP, data = ., family = binomial)
+
+# View model summary
+summary(modelt1)
+
+# Fit logistic mixed effects model with random intercepts and random slopes
+modelt2 <- df_2 %>%
+  filter(TIME == 2) %>%
+  glm(SAE ~ AGE + SEX + GROUP, data = ., family = binomial)
+
+# View model summary
+summary(modelt2)
+
+
+# Fit logistic mixed effects model with random intercepts and random slopes
+modelt3 <- df_2 %>%
+  filter(TIME == 3) %>%
+  glm(SAE ~ AGE + SEX + GROUP, data = ., family = binomial)
+
+# View model summary
+summary(modelt3)
+
+```
+
+
+# Question c
+
+```{r}
+df_3 = read_excel("Q2c.xlsx", col_types = "numeric")
+```
+
+```{r}
+table(df_3$InfectionTime, df_3$Infection)
+```
+
+
+```{r}
+ggplot(data = df_3) + 
+  geom_boxplot(aes(x = LastFUTime, y = factor(Infection)))
+```
+
+Checking if people got infected before second shot:
+
+```{r}
+df_3 %>%
+  filter(EnrollmentTime < LastFUTime)
+```
+
+My understanding:
+
+Patients were initially in first study (they can't have had COVID before then). They were followed up for some time.
+
+Then, They get enrolled
+
+They got the shot at some point after the follow up and enrollment.
+
+They may have gotten infected after the vaccine (or otherwise missed to censoring)
+
+
+```{r}
+survfit(Surv(InfectionTime, event = Infection) ~ 1, conf.type='log', data = df_3)
+```
+
+```{r}
+df_3 = df_3 %>%
+  mutate(final_time = if_else(Infection == 0, LastFUTime, InfectionTime))
+
+survfit(Surv(EnrollmentTime, final_time, Infection) ~ 1, 
+        conf.type='log', data = df_3) %>%
+  ggsurvfit()
+
+survfit(Surv(EnrollmentTime, final_time, Infection) ~ 1, 
+        conf.type='log', data = df_3) %>% summary(times = 365)
+```
+
+Note it does not reach 0.5
+
+Using Cox model
+
+```{r}
+model = coxph(Surv(EnrollmentTime, final_time, Infection) ~ 1, 
+         data = df_3, ties = "breslow")
+```
+
+Probability of survival after 12 months: Those that survived 12 months / those at risk (everybody in the dataset is at risk)
+
+```{r}
+surv_fit = survfit(Surv(EnrollmentTime, final_time, Infection) ~ 1, 
+         data = df_3) 
+  
+1 - summary(surv_fit, times = 365)$surv
+
+# Do "1 -" here
+```
+Mean:
+
+```{r}
+summary(surv_fit)$table["mean"]
+```
+
+```{r}
+library(survRM2)
+
+df_3$group <- 1  # Everyone in the same group
+
+# Run rmst2 with the dummy group
+rmst_result <- suppressMessages(
+  suppressWarnings(
+  rmst2(time = df_3$final_time,
+                     status = df_3$Infection,
+                     arm = df_3$group,
+                     tau = 365)))  # Truncation time, e.g., 12 months
+
+# Extract RMST estimate
+rmst_result$RMST.arm1$est
+```
+
+Median with KM:
+
+```{r}
+summary(surv_fit)$table["median"]
+
+surv_fit$median
+```
+
+
+```{r}
+
+library(flexsurv)
+
+# Fit a Weibull model with left truncation
+weib_flex <- flexsurvreg(Surv(EnrollmentTime, final_time, Infection) ~ 1,
+                         data = df_3,
+                         dist = "weibull")
+
+# Median survival time from the model
+summary(weib_flex, type = "median")
+
+summary(weib_flex, type = "mean")
+
+exp_model <- flexsurvreg(Surv(EnrollmentTime, final_time, Infection) ~ 1,
+                         data = df_3,
+                         dist = "exponential")
+
+# View model summary
+summary(exp_model, type = "median")
+
+summary(exp_model, type = "mean")
+```
