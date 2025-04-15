@@ -86,6 +86,11 @@ RR ={n1/(n1+n2)}/{n3/(n3+n4)}
 
 H0: RR>=0.7, H1: RR<0.7
 
+Test statistics: Wald Z = (log RR - log 0.7)/ SE(log RR)
+
+Reject H0 if Wald Z < -z_0.025 = -1.96
+Report 95% CI for VE = 1-RR
+
 
 ### Assumption: 
 
