@@ -32,7 +32,7 @@ library(readxl)
 library(ggplot2)
 library(emmeans)
 library(glmmTMB)
-
+library(sjPlot)
 df_Q2bBL <- read_excel("Q2b_BL.xlsx") |> 
   janitor::clean_names()
 df_Q2b <- read_excel("Q2b.xlsx")|> 
@@ -66,32 +66,30 @@ print(tab)
 ### Logistic Mixed Effect Model 
 
 
-Add site as random intercept
+Add site as random intercept (doesn't converge)
+
 
 ```{r}
-SAE_mod = df_b |> mutate(time = as.factor(time)) |> 
-                glmmTMB(sae ~ sex + age + time + group + (1 | id),
-                              data = _, family = binomial)
-summary(SAE_mod)
+SAE_mod <- df_b |> mutate(time = as.factor(time)) |> 
+  glmer(sae ~ sex + age + time + group + (1 | id),
+            family = binomial(link = "logit"), 
+            data   = _)
+summary(SAE_mod)        
+sjPlot::tab_model(SAE_mod, transform = "exp")  
 ```
 
-
+Consider interaction between time and group
 
 ```{r}
-m1 <- df_b |> glmer(sae ~ sex + age + time + group + (1 | id),
+SAE_mod_int <- df_b |> mutate(time = as.factor(time)) |> 
+  glmer(sae ~ sex + age + time*group + (1 | id),
             family = binomial(link = "logit"), 
             data   = _)
 
-summary(m1)
+summary(SAE_mod_int)
+sjPlot::tab_model(SAE_mod_int, transform = "exp")  
 ```
 
-
-```{r}
-SAE_mod = df_b |>
-                glmmTMB(sae ~ sex + age + time + group + (1 | id),
-                              data = _, family = binomial)
-summary(SAE_mod)
-```
 
 ### GEE ? Sensitivity Analysis
 
@@ -108,16 +106,11 @@ summary(gee)
 
 ```{r}
 library(emmeans)
-
 emm <- emmeans(gee, ~ group | time, type = "response")
 pairs(emm, by = "time")  # gives OR and 95% CI
 ```
 
 ## c) 
-
-```{r}
-df_Q2c[1287,]
-```
 
 ```{r}
 df_c = left_join(df_Q2c, df_Q2bBL, by = "id")
@@ -162,6 +155,8 @@ cox_mod<- coxph(Surv(enrollment_time, time, status) ~ sex + age , data = df_surv
 summary(cox_mod)
 cox.zph(cox_mod)
 ```
+
+
 ```{r}
 summary(df_c)
 ```
