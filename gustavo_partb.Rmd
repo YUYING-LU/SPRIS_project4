@@ -34,14 +34,29 @@ study =  read_excel("Q2b.xlsx", col_types = "numeric")
 df_2 = left_join(baseline, study) %>%
   mutate(SEX = factor(SEX),
          GROUP = factor(GROUP),
-         TIME = factor(TIME))
+         TIME = factor(TIME),
+         SAE = factor(SAE))
 ```
+
+```{r}
+df_2 %>%
+  pivot_wider(names_from = TIME, values_from = SAE, names_prefix = "month_") %>%
+  select(-c(ID, SITE)) %>%
+  tbl_summary(
+    by = GROUP,
+    statistic = list(
+            all_continuous() ~ "{mean} ({sd})"
+        )) %>%
+  add_p() %>%
+  modify_caption("**Patient Characteristics**")
+```
+
 
 Little's test:
 
 ```{r}
 naniar::mcar_test(df_2) %>%
-  knitr::kable(format = "latex", caption = "Little's test results")
+  knitr::kable( caption = "Little's test results")
 ```
 
 Shows data missing at random (rejected null of MCAR)
@@ -84,6 +99,8 @@ results <- lapply(seq_along(models1), function(i) {
 })
 
 sapply(results, function(x) x$`Pr(>Chisq)`[2]) 
+
+p.adjust(sapply(results, function(x) x$`Pr(>Chisq)`[2]) , method = "bonferroni")
 ```
 
 
