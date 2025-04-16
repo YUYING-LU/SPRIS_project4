@@ -1,0 +1,104 @@
+---
+title: "SPRIS Proj 4 Part b"
+author: "Gustavo Garcia-Franceschini"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(readxl)
+library(tidyverse)
+library(haven)
+library(gtsummary)
+library(KMsurv)
+library(survival)
+library(survival)
+library(survminer)
+library(ggplot2)
+library(patchwork)
+library(pec)
+library(lme4)
+library(ggsurvfit)
+library(mice)
+```
+
+# Question b
+
+```{r}
+baseline =  read_excel("Q2b_BL.xlsx", col_types = "numeric")
+
+study =  read_excel("Q2b.xlsx", col_types = "numeric")
+
+df_2 = left_join(baseline, study) %>%
+  mutate(SEX = factor(SEX),
+         GROUP = factor(GROUP),
+         TIME = factor(TIME))
+```
+
+Little's test:
+
+```{r}
+naniar::mcar_test(df_2) %>%
+  knitr::kable(format = "latex", caption = "Little's test results")
+```
+
+Shows data missing at random (rejected null of MCAR)
+
+MICE imputation:
+
+```{r}
+#glmer(SAE ~ TIME + AGE + SEX + GROUP +
+#                 (1 | ID/SITE), family = binomial, data = df_2)
+
+imputed_data <- mice(df_2, 
+                     method = "pmm", 
+                     m = 1,
+                     maxit = 5, 
+                     printFlag = F,
+                     seed = 42)
+```
+```{r}
+
+model_mice <- with(imputed_data, 
+                        glmer(SAE ~ TIME + AGE + SEX + GROUP +
+                 (1 | ID/SITE), family = binomial))
+
+```
+```{r}
+model_mice_int <- with(imputed_data, 
+                        glmer(SAE ~ TIME + AGE + SEX + GROUP +
+                 (1 | ID/SITE) + GROUP*TIME, family = binomial))
+
+```
+
+
+```{r}
+models1 <- model_mice$analyses
+models2 <- model_mice_int$analyses
+
+# Loop through each pair and do anova()
+results <- lapply(seq_along(models1), function(i) {
+  anova(models1[[i]], models2[[i]], test = "Chisq")
+})
+
+sapply(results, function(x) x$`Pr(>Chisq)`[2]) 
+```
+
+
+```{r}
+model <- glmer(SAE ~ TIME + AGE + SEX + GROUP +
+                (1 | ID/SITE), family = binomial, data = df_2)
+
+pooled_results <- pool(model_mice)
+
+lmm_table2 = cbind(summary(model)$coefficients[, c(1, 4)],
+                   summary(pooled_results)$coefficients[, c(1, 4)])
+
+colnames(lmm_table2) = c("With NA", "p-value", "With MICE", "p-value")
+knitr::kable(lmm_table2, caption = "Results from GLMM", digits = 3)
+```
+
+
+
