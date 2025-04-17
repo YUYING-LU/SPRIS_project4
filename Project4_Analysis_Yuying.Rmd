@@ -43,6 +43,9 @@ knitr::opts_chunk$set(echo = TRUE, warning = F, message = F)
 
         2)  Median time to infection, and the mean of the time to infection after the second shot
 
+
+
+
 ```{r}
 library(tidyverse)
 library(lme4)
@@ -51,6 +54,7 @@ library(readxl)
 library(ggplot2)
 library(emmeans)
 library(glmmTMB)
+library(flexsurv)
 library(sjPlot)
 df_Q2bBL <- read_excel("Q2b_BL.xlsx") |> 
   janitor::clean_names()
@@ -84,9 +88,9 @@ intent-to-treat Analysis
 
 RR ={n1/(n1+n2)}/{n3/(n3+n4)}
 
-H0: RR>=0.7, H1: RR<0.7
+H0: RR >= 0.7, H1: RR < 0.7
 
-Test statistics: Wald Z = (log RR - log 0.7)/ SE(log RR)
+Test statistics: Wald Z = (log RR - log 0.7) / SE(log RR)
 
 Reject H0 if Wald Z < -z_0.025 = -1.96
 Report 95% CI for VE = 1-RR
@@ -120,13 +124,17 @@ tab <- df_b %>%
 print(tab)
 ```
 
+
+### missingness
+
+
 ### Logistic Mixed Effect Model
 
 Add site as random intercept (doesn't converge)
 
 ```{r}
 SAE_mod <- df_b |> mutate(time = as.factor(time)) |> 
-  glmer(sae ~ sex + age + time + group + (1 | id),
+  glmer(sae ~ sex + age + time + group + (1 | id) + (1 | site),
             family = binomial(link = "logit"), 
             data   = _)
 summary(SAE_mod)        
@@ -137,15 +145,12 @@ Consider interaction between time and group
 
 ```{r}
 SAE_mod_int <- df_b |> mutate(time = as.factor(time)) |> 
-  glmer(sae ~ sex + age + time*group + (1 | id/site),
+  glmer(sae ~ sex + age + time*group + (1 | id/site) ,
             family = binomial(link = "logit"), 
             data   = _)
 
 summary(SAE_mod_int)
 sjPlot::tab_model(SAE_mod_int, transform = "exp") 
-
-site/id
-
 
 
 ```
@@ -163,6 +168,7 @@ gee <- geeglm(sae ~ group * time + sex + age,
 summary(gee)
 ```
 
+
 ```{r}
 library(emmeans)
 emm <- emmeans(gee, ~ group | time, type = "response")
@@ -171,10 +177,13 @@ pairs(emm, by = "time")  # gives OR and 95% CI
 
 ## c)
 
+
 ```{r}
 df_c = left_join(df_Q2c, df_Q2bBL, by = "id")
 df_c
 ```
+
+
 
 ```{r}
 mean(df_c$infection_time, na.rm = T)
@@ -184,7 +193,7 @@ mean(is.na(df_c$infection_time))
 
 ### KM
 
-```{r}
+```{r,fig.width=6, fig.height=4}
 library(survival)
 library(survminer)
 library(patchwork)
@@ -207,11 +216,197 @@ cat(sprintf("Probability of infection within 12 months = %.2f%% (95%% CI %.2f �
             100*prob12, 100*ci12[2], 100*ci12[1]))
 ```
 
+
+
+```{r,fig.width=6, fig.height=4}
+g <- ggsurvplot(
+        km, conf.int = TRUE, pval = TRUE, data = df_surv,
+        ggtheme = theme_minimal(), title = "KM Survival Curves"
+     )
+
+## 3. Grab the KM estimate and 95% CI at 365 days
+s365      <- summary(km, times = 365)$surv
+ci_lower  <- summary(km, times = 365)$lower
+ci_upper  <- summary(km, times = 365)$upper
+
+## 4. Add the vertical line, point, error bar, and label
+g$plot <- g$plot +
+  geom_vline(xintercept = 365, linetype = "dashed", colour = "red") +
+  geom_point(aes(x = 365, y = s365), colour = "black", size = 3) +
+  geom_errorbar(
+      aes(x = 365, ymin = ci_lower, ymax = ci_upper),
+      width = 0, colour = "black", linewidth = 0.8
+  ) +
+  annotate(
+      "text", x = 367, y = s365,
+      label = sprintf("  S(365) = %.2f\n95%% CI: %.2f–%.2f",
+                      s365, ci_lower, ci_upper),
+      hjust = -0.05, vjust = 0.15, colour = "black"
+  )
+
+## 5. Display
+print(g)
+
+est_km = summary(km)$table['rmean']
+se_km = summary(km)$table['se(rmean)']
+```
+
+
+
+
+```{r}
+fit_flex <- flexsurvreg(Surv(enrollment_time, time, status) ~ 1,
+                        data = df_surv, dist = "exp")  # same as exponential
+print(fit_flex, ci = TRUE)
+```
+
+Check the exponential assumption:
+
+```{r}
+ggsurv <- survfit(Surv(enrollment_time, time, status) ~ 1,
+                        data = df_surv)
+plot(log(ggsurv$time), log(ggsurv$surv), type = "s")
+```
+```{r}
+
+weib_flex <- flexsurvreg(Surv(enrollment_time, time, status) ~ 1,
+                         data = df_surv,
+                         dist = "weibull")
+
+shape_k <- exp(coefficients(weib_flex)[1])
+scale_lambda <- exp(coefficients(weib_flex)[2])
+scale_lambda * (log(2))^(1/shape_k)
+
+# Median survival time from the model
+
+summary(weib_flex, type = "median")
+summary(weib_flex, type = "mean")
+
+exp_model <- flexsurvreg(Surv(enrollment_time, time, status) ~ 1,
+                         data = df_surv,
+                         dist = "exponential")
+
+# View model summary
+lambda = exp(coefficients(exp_model))
+summary(exp_model, type = "median") 
+summary(exp_model, type = "mean")
+
+data_1 = 
+  data.frame(Distribution = c(rep("Exp",2),rep("Weibull",2),"KM"),
+           Time_type = c("median","mean","median","mean","mean"),
+           dplyr::bind_rows(summary(exp_model, type = "median"),
+      summary(exp_model, type = "mean"),
+      summary(weib_flex, type = "median"),
+      summary(weib_flex, type = "mean"),
+      data.frame(est = est_km, lcl = est_km-1.96*se_km,ucl = est_km+1.96*se_km)))
+
+
+data_1
+
+
+```
+
+```{r}
+pred_exp <- summary(exp_model,t = 356, type = "survival")
+pred_weib <- summary(weib_flex,t = 356, type = "survival")
+pred_log <- summary(log_lgt,t = 356, type = "survival")
+pred_gamma <- summary(gamma_mod,t = 356, type = "survival")
+s365      <- 1- summary(km, times = 365)$surv
+ci_lower  <- 1- summary(km, times = 365)$lower
+ci_upper  <- 1- summary(km, times = 365)$upper
+
+1-pred[[1]][c("est", "ucl", "lcl")]
+
+data.frame(Distribution = c("Exp","Weibull","Log-logistic","Gamma","KM"),
+           dplyr::bind_rows(1-pred_exp[[1]][c("est", "ucl", "lcl")],
+      1-pred_weib[[1]][c("est", "ucl", "lcl")],
+      1-pred_log[[1]][c("est", "ucl", "lcl")],
+      1-pred_gamma[[1]][c("est", "ucl", "lcl")],
+      data_frame(est=s365, ucl = ci_upper, lcl=ci_lower)))
+
+
+
+
+```
+
+
+```{r}
+gamma_mod <- flexsurvreg(Surv(enrollment_time, time, status) ~ 1,
+                         data = df_surv,
+                         dist = "gamma")
+
+
+rate_gamma          <- gamma_mod$res[,"est"]["rate"]         # λ
+shape_k_gamma       <- gamma_mod$res[,"est"]["shape"]  
+
+mean_gamma = shape_k_gamma/rate_gamma
+
+summary(gamma_mod, type = "median")
+
+summary(gamma_mod, type = "mean")
+
+log_lgt <- flexsurvreg(Surv(enrollment_time, time, status) ~ 1,
+                         data = df_surv,
+                         dist = "llogis")
+
+kappa_log <- log_lgt$res["shape", "est"]
+rate_log <- log_lgt$res["scale", "est"]
+summary(log_lgt, type = "median") 
+summary(log_lgt, type = "mean")
+
+data_2 = 
+  data.frame(Distribution = c(rep("Log-logistic",2),rep("Gamma",2)),
+           Time_type = c("median","mean","median","mean"),
+           dplyr::bind_rows(summary(log_lgt, type = "median"),
+      summary(log_lgt, type = "mean"),
+      summary(gamma_mod, type = "median"),
+      summary(gamma_mod, type = "mean")))
+```
+
+
+```{r}
+dplyr::bind_rows(data_1,data_2)
+```
+
+
+```{r}
+km_df = summary(km, times = df_surv$time)
+line_size = 0.7
+survival_plot_A <- 
+  ggplot(df_surv, aes(x = time)) +
+  #stat_ecdf(geom = "step", aes(y = 1 - ..y.., color = "Empirical"), size = 1) +  
+  stat_function(fun = function(x) exp(-lambda * x), 
+                aes(color = "Exponential"), size = line_size )  +
+  stat_function(fun = function(x) exp(-(x/scale_lambda)^shape_k),  
+                aes(color = "Weibull"), size = line_size ) + 
+  stat_function(fun = function(x) 1/(1+(x/rate_log)^kappa_log),  
+                aes(color = "Log-logistic"), size = line_size ) + 
+  stat_function(fun = function(x) pgamma(x, shape = shape_k_gamma, rate = rate_gamma, lower.tail = FALSE),  
+                aes(color = "Gamma"), size = line_size ) + 
+  geom_step(aes(y = km_df$surv, x = km_df$time, color = "Kaplan-Meier"), size = line_size )+
+  scale_color_manual(name = "Method", 
+                     limits = c("Kaplan-Meier", "Exponential", "Weibull", "Log-logistic", "Gamma"),
+                     values = c("Exponential" = "#D16103", 
+                                "Weibull" = "#22A54C",
+                                "Log-logistic" = "#4E84C4",
+                                "Gamma" = "#BC0907",
+                                "Kaplan-Meier" = "#BC89A7")) +  
+  labs(title = "Survival Function Comparison",
+       x = "Time",
+       y = "Survival Probability")  +
+  theme_minimal()
+
+
+survival_plot_A
+```
+
+
+
 # fit other distribution
 
 
 ```{r}
-cox_mod<- coxph(Surv(enrollment_time, time, status) ~ sex + age , data = df_surv)
+cox_mod<- coxph(Surv(enrollment_time, time, status) ~ sex + age , data = df_surv, x= TRUE)
 # Print summary of the model
 summary(cox_mod)
 cox.zph(cox_mod)
@@ -220,5 +415,30 @@ cox.zph(cox_mod)
 
 
 ```{r}
-summary(df_c)
+baseline_hazard <- basehaz(cox_mod, centered = FALSE)
+head(baseline_hazard)
+
+plot(baseline_hazard$time, baseline_hazard$hazard, type = "s",
+     xlab = "Time", ylab = "Cumulative Baseline Hazard",
+     main = "Baseline Hazard Function", col = "#4E84C4", lwd = 2)
+
+
+# Plot using ggplot2
+cum_plot_B = ggplot(baseline_hazard, aes(x = time, y = hazard)) +
+  geom_step(color = "#4E84C4", size = 1.2) +  # Step plot for cumulative hazard
+  labs(title = expression("Baseline Hazard Function " ~ H[0](t)),
+       x = "Time",
+       y = "Cumulative Baseline Hazard") +
+  theme_minimal()
+
+baseline_hazard$survival <- exp(-baseline_hazard$hazard)
+baseline_hazard$time
+# Plot the survival function using ggplot2
+surv_plot_B = ggplot(baseline_hazard, aes(x = time, y = survival)) +
+  geom_step(color = "#4E84C4", size = 1.2) +  # Step plot for survival function
+  labs(title = expression("Baseline Survival Function " ~ S[0](t)),
+       x = "Time",
+       y = "Survival Probability") +
+  theme_minimal()
+surv_plot_B
 ```

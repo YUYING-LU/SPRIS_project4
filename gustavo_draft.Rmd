@@ -213,9 +213,7 @@ surv_fit$median
 
 
 ```{r}
-
 library(flexsurv)
-
 # Fit a Weibull model with left truncation
 weib_flex <- flexsurvreg(Surv(EnrollmentTime, final_time, Infection) ~ 1,
                          data = df_3,
